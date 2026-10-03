@@ -29,7 +29,7 @@ SET content_html = '
 <li><code>DELETE /connector/payments/{id}</code> - Delete payment</li>
 </ul>
 
-<p><a href="https://xero.forit.io/api/connector/apiDefinition.swagger.json" target="_blank">Swagger Spec</a> | <a href="https://github.com/ForITLLC/ForIT-Xero" target="_blank">GitHub</a></p>
+<p><a href="https://xero.forit.io/api/connector/apiDefinition.swagger.json" target="_blank">Swagger Spec</a> | <a href="https://github.com/ForITLLC/for-Xero" target="_blank">GitHub</a></p>
 
 <hr />
 
