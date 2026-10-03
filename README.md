@@ -25,7 +25,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "forit-xero": {
       "command": "npx",
-      "args": ["-y", "github:ForITLLC/ForIT-Xero/mcp-server"],
+      "args": ["-y", "github:ForITLLC/for-Xero/mcp-server"],
       "env": {
         "FORIT_XERO_API_KEY": "YOUR_API_KEY"
       }

@@ -12,7 +12,7 @@ async function getMcpConfig(request: HttpRequest, context: InvocationContext): P
     mcpServers: {
       'forit-xero': {
         command: 'npx',
-        args: ['-y', 'github:ForITLLC/ForIT-Xero/mcp-server'],
+        args: ['-y', 'github:ForITLLC/for-Xero/mcp-server'],
         env: {
           FORIT_XERO_API_KEY: apiKey
         }
