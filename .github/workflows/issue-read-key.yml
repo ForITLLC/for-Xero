@@ -1,0 +1,82 @@
+name: Issue approved Xero read key
+
+on:
+  workflow_dispatch:
+    inputs:
+      decision_id:
+        description: 'Full approved decision ID (only 18b3e8e7 is supported)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xero-for-mcp-key-issuance
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate approved operation
+        env:
+          DECISION_ID: ${{ inputs.decision_id }}
+        run: |
+          test "$DECISION_ID" = '18b3e8e7-0812-4bea-9cad-8351c1d2277a'
+      - name: Login as existing deployment identity
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Invoke product-owned managed-identity issuance
+        env:
+          DECISION_ID: ${{ inputs.decision_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.request, urllib.error
+
+          # The deployment runner authenticates the admin invocation only.
+          # SQL and Key Vault work happens inside the app under its own MI.
+          result = subprocess.run([
+              'az', 'functionapp', 'keys', 'list', '--resource-group', 'rg-forit-xero',
+              '--name', 'forit-xero-mcp', '--output', 'json', '--only-show-errors'
+          ], capture_output=True, text=True)
+          if result.returncode:
+              raise SystemExit('Cannot obtain host administration key; nothing invoked')
+          try:
+              master = json.loads(result.stdout)['masterKey']
+          except (KeyError, ValueError):
+              raise SystemExit('Host administration key unavailable; nothing invoked')
+          if not isinstance(master, str) or not master:
+              raise SystemExit('Host administration key unavailable; nothing invoked')
+          print('::add-mask::' + master, flush=True)
+          req = urllib.request.Request(
+              'https://xero.forit.io/api/admin/keys/for-mcp',
+              data=json.dumps({'decision_id': os.environ['DECISION_ID']}).encode(),
+              headers={'Content-Type': 'application/json', 'x-functions-key': master},
+              method='POST')
+          try:
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  body = json.load(response)
+          except urllib.error.HTTPError as exc:
+              raise SystemExit(f'Issuance endpoint returned HTTP {exc.code}; reconcile before retry')
+          except Exception:
+              raise SystemExit('Issuance outcome unknown; reconcile before retry')
+          fields = ('decision_id', 'key_id', 'customer_id', 'scope', 'secret_name', 'secret_version', 'reused')
+          if (set(body) != set(fields) or body['decision_id'] != os.environ['DECISION_ID']
+                  or body['scope'] != 'read' or body['secret_name'] != 'xero-api-key-for-mcp'):
+              raise SystemExit('Unexpected receipt; reconcile before retry')
+          receipt = {name: body[name] for name in fields}
+          with open('issuance-receipt.json', 'w') as output:
+              json.dump(receipt, output, indent=2)
+          print(json.dumps(receipt))
+          PY
+      - name: Preserve non-secret issuance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: xero-read-key-receipt
+          path: issuance-receipt.json
+          if-no-files-found: error
+          retention-days: 30
