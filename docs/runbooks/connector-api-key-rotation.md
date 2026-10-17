@@ -53,7 +53,7 @@ causes**, and the body tells them apart:
 ### Approved gateway read key (decision 18b3e8e7)
 
 The manual **Issue approved Xero read key** workflow on `main` invokes
-`POST /api/admin/keys/for-mcp` with the full `decision_id`. The Functions host
+`POST /api/ops/keys/for-mcp` with the full `decision_id`. The Functions host
 requires its master administration key, which stays inside the deployment runner.
 Customer keys, portal keys, scope overrides and customer overrides are refused.
 

@@ -51,6 +51,6 @@ async function issueReadKey(request: HttpRequest, context: InvocationContext): P
 app.http('IssueForMcpReadKey', {
   methods: ['POST'],
   authLevel: 'admin',
-  route: 'admin/keys/for-mcp',
+  route: 'ops/keys/for-mcp',
   handler: issueReadKey,
 });
