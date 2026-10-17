@@ -36,6 +36,7 @@ const EXPECTED_ENVELOPE_USE = {
   'subscriptions.ts': true,
   'health.ts': true,
   'connector.ts': true, // catch blocks only — the Xero passthrough is untouched
+  'keyIssuance.ts': true, // admin-only; also suppresses SDK details in host logs
   'keepAlive.ts': false, // timer-triggered, returns nothing to any caller
   'mcp.ts': false,
   'index.ts': false,

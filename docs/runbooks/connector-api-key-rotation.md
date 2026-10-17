@@ -50,6 +50,39 @@ causes**, and the body tells them apart:
 
 ## Issuing a key
 
+### Approved gateway read key (decision 18b3e8e7)
+
+The manual **Issue approved Xero read key** workflow on `main` invokes
+`POST /api/admin/keys/for-mcp` with the full `decision_id`. The Functions host
+requires its master administration key, which stays inside the deployment runner.
+Customer keys, portal keys, scope overrides and customer overrides are refused.
+
+Issuance uses the Xero app's own `ManagedIdentityCredential` for both SQL and
+Key Vault. It does not use the legacy password pool. Before invoking it, provision
+the app identity into its own scoped Entra runtime group, mapped as SQL `TYPE=X`.
+Required rights in database `forit`: `CONNECT`, `SELECT` on `xero.customers`,
+`xero.products`, `xero.customer_products`, `xero.xero_connections` and
+`xero.api_keys`, and `INSERT` on `xero.api_keys`. The transaction uses
+`sys.sp_getapplock` to serialize issuance. The app also needs get/set rights on
+only `forit-saas-kv/xero-api-key-for-mcp`. Do not use an administrator password,
+an agent database login or the old password-backed provisioning path.
+
+The route is pinned to this approval, ForIT's verified customer and scope `read`.
+It saves the value once to the approved vault, then inserts the SHA-256 hash.
+The mandatory SQL `key_prefix` column contains the fixed label `fmcp_read`,
+without any credential bytes. A repeated call reconciles the existing vault
+version and row under the transaction lock; it never rotates or reactivates a
+key. A saved vault version survives a failed SQL insert and is reused on retry.
+Conflicting vault metadata, rows, disabled keys or missing entitlement fail closed.
+The response and workflow artifact contain IDs and version metadata only.
+
+After issuance, for-mcp binds the named secret and reloads. Prove
+`GET /api/connector/Organisation` returns 200 and
+`POST /api/connector/contacts` with `{}` returns 403 with error exactly
+`Read-only API key`. The empty contact has no Name, so it cannot create a contact
+even if the scope gate fails. Notify Finance and record the decision execution
+receipt only after those effects are verified.
+
 `POST /api/keys/new` is **disabled** (410 Gone — `mcpAuth.ts:128`); public signup moved to
 the portal. So there are two sanctioned paths:
 
