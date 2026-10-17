@@ -53,7 +53,7 @@ jobs:
               raise SystemExit('Host administration key unavailable; nothing invoked')
           print('::add-mask::' + master, flush=True)
           req = urllib.request.Request(
-              'https://xero.forit.io/api/admin/keys/for-mcp',
+              'https://xero.forit.io/api/ops/keys/for-mcp',
               data=json.dumps({'decision_id': os.environ['DECISION_ID']}).encode(),
               headers={'Content-Type': 'application/json', 'x-functions-key': master},
               method='POST')

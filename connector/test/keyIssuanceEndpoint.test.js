@@ -28,9 +28,20 @@ test('key issuance is POST and requires Azure Functions admin authentication', (
   assert.equal(registrations.length, 1);
   assert.equal(registrations[0].name, 'IssueForMcpReadKey');
   assert.equal(registrations[0].kind, 'http');
-  assert.equal(registrations[0].options.route, 'admin/keys/for-mcp');
+  assert.equal(registrations[0].options.route, 'ops/keys/for-mcp');
   assert.equal(registrations[0].options.authLevel, 'admin');
   assert.deepEqual(registrations[0].options.methods, ['POST']);
+});
+
+test('key issuance route passes the Functions host reserved-route validation', () => {
+  // The host validates the raw route before applying /api. Matching only the
+  // public URL misses this and leaves the function unindexed with HTTP 404.
+  // https://github.com/Azure/azure-functions-host/blob/2a69d34f9a66fb338a6b03e50f7aa9412487c7ab/src/WebJobs.Script/Host/ScriptHost.cs#L923-L937
+  const { registrations } = load(async () => RECEIPT);
+  for (const { name, options } of registrations) {
+    const rawRoute = (options.route || name).replace(/^\/+|\/+$/g, '');
+    assert.doesNotMatch(rawRoute, /^(admin|runtime)/i, `${name} cannot be indexed by the Functions host`);
+  }
 });
 
 test('rejects malformed, unapproved and override bodies without invoking issuance', async () => {
