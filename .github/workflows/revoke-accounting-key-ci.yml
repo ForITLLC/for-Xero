@@ -1,0 +1,24 @@
+name: Accounting key revocation safeguards
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/revoke-accounting-key.cjs'
+      - 'scripts/run-accounting-key-operation.cjs'
+      - 'scripts/test/revoke-accounting-key.test.cjs'
+      - '.github/workflows/revoke-accounting-key.yml'
+      - '.github/workflows/revoke-accounting-key-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - run: node --check scripts/run-accounting-key-operation.cjs
+      - run: node --test scripts/test/revoke-accounting-key.test.cjs
