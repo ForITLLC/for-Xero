@@ -1,0 +1,65 @@
+name: Inspect or revoke retired accounting connector key
+
+on:
+  workflow_dispatch:
+    inputs:
+      security_item:
+        description: 'Full CE4BEA05 checklist ID'
+        required: true
+        type: string
+      key_id:
+        description: 'Exact row verified against the accounting setting'
+        required: true
+        type: string
+      expected_hash:
+        description: 'SHA-256 from sealed accounting matching; never the key'
+        required: true
+        type: string
+      mode:
+        description: 'Inspect first; revoke only after source matching'
+        type: choice
+        options: [inspect, revoke]
+        default: inspect
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xero-accounting-key-retirement
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: connector/package-lock.json
+      - name: Install existing SQL driver
+        working-directory: connector
+        run: npm ci --no-audit --no-fund
+      - name: Verify revocation safeguards
+        run: node --test scripts/test/revoke-accounting-key.test.cjs
+      - name: Login as the existing product migration identity
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Run exact product-owned operation
+        env:
+          SECURITY_ITEM: ${{ inputs.security_item }}
+          KEY_ID: ${{ inputs.key_id }}
+          EXPECTED_HASH: ${{ inputs.expected_hash }}
+          MODE: ${{ inputs.mode }}
+        run: node scripts/run-accounting-key-operation.cjs
+      - name: Preserve non-secret readback
+        uses: actions/upload-artifact@v4
+        with:
+          name: accounting-key-revocation-receipt
+          path: accounting-key-revocation-receipt.json
+          if-no-files-found: error
+          retention-days: 30
