@@ -118,11 +118,26 @@ this exact table-level triple. The database seat must encode the exact grant.
 A separate OIDC deploy group runs the canonical DDL. Existing legacy SQL-password
 migration is not an authorized path.
 
-CI is a separate held permission gap: its exact proposed fix is job
-`permissions: {contents: read, packages: read}` and `NODE_AUTH_TOKEN` from
-`${{ secrets.GITHUB_TOKEN }}` on `npm ci`, plus repository read access to the
-required org packages. The active workflow remains unchanged. This permission
-change needs explicit decided coverage; the wave is not assumed to include it.
+## Local checks and held deployment package access
+
+Common follow-up `msg_703bb9a6ed84` supersedes the earlier proposed repair of
+Interest CI. ADR 0005 D2 (amended) puts standalone check-only workflows off
+Actions. Local TypeScript and tests are the source gate: 44/44 passed at code
+revision `7ad37b9`. Run `40440795294` failed package download before build/tests;
+do not rerun it or grant `packages: read` to chase that check. The existing
+check-only workflow's retirement/required-context reconciliation is still owed;
+this draft has not changed workflows or branch protection.
+
+The actual release prerequisite is `.github/workflows/interest.yml`: its setup
+step needs `registry-url: https://npm.pkg.github.com`, and its `npm ci` step
+needs `NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}`. These are held source
+changes to prepare for an authorized deployment, not an instruction to run it.
+Common reports repository `for-Xero` (ID `1129129732`) is absent from the
+organization token's selected repositories and has already asked Dispatch to add
+it together with for-Dolores. That is an owner-reported access gap, not a fresh
+metadata read by Xero. Grant nothing from this lane, make no duplicate request,
+and do not assume a decision or successful grant. This package read path does
+not replace the separate OIDC migration identity or authorize the stopped app.
 
 ## Release gates and evidence still owed
 
@@ -130,13 +145,13 @@ change needs explicit decided coverage; the wave is not assumed to include it.
    route, stable TenantKey and tenant presentation.
 2. Have Common qualify the requested set and obtain Ben's decision on its ONE
    wave card before signing material/pepper, Key Vault references/grants, SQL
-   admission/table access, OIDC identity or permission changes. CI permissions
-   and public route activation require explicit decided coverage too; do not
+   admission/table access, OIDC identity or permission changes. Deployment-token
+   repository access and public route activation need explicit decided coverage; do not
    assume the policy ruling or the old connector card covers these effects.
-3. The existing Interest CI supplies neither `NODE_AUTH_TOKEN` nor package-read
-   permission. This draft adds only GitHub Packages registry configuration, with
-   an environment placeholder and no token. Establish the approved package-read
-   path before normal CI/release; no workflow permissions were changed here.
+3. Preserve the local build/test gate. Before any authorized deployment, verify
+   Dispatch's selected-repository access outcome and wire the existing deploy
+   workflow to `secrets.NPM_READ_TOKEN` as above. No check-only Actions repair,
+   grant or workflow change was made in this draft.
 4. Prove the signed manage page and send check use the same durable row and
    subsequent sends are suppressed; no Website switch is required here.
 5. After authorized migration/deployment, prove deployed GET has no write and a
