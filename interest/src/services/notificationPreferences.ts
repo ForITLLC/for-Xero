@@ -1,5 +1,5 @@
 import {
-  createUnsubscribeKeyring, createUnsubscribeRouteHandler, subjectForAddress, subjectForUser, verifyUnsubscribeToken,
+  createUnsubscribeKeyring, createUnsubscribeRouteHandler, subjectForAddress, verifyUnsubscribeToken,
   type OptOutStore, type OptOutSubject, type UnsubscribeKeyring,
 } from '@foritllc/mail';
 
@@ -14,15 +14,22 @@ export interface NotificationSettings {
   preferencesUrl: string;
   reconnectUrl: string;
   keyring: UnsubscribeKeyring;
-  subjectKind: 'user' | 'address';
-  userId?: string;
-  addressPepper?: string;
+  addressPepper: string;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) throw new Error('Notification configuration unavailable');
   return value;
+}
+
+/** Stable product identity is explicit and must never be normalized or inferred. */
+export function loadNotificationTenantKey(env: NodeJS.ProcessEnv = process.env): string {
+  const tenant = env.NOTIFICATION_TENANT_KEY;
+  if (typeof tenant !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/.test(tenant)) {
+    throw new Error('Notification tenant key unavailable');
+  }
+  return tenant;
 }
 
 function httpsUrl(value: string): URL {
@@ -36,48 +43,36 @@ function httpsUrl(value: string): URL {
 /** Values come from this product's approved settings/KV references, never a request. */
 export function loadNotificationSettings(env: NodeJS.ProcessEnv = process.env): NotificationSettings {
   try {
-    const tenant = required(env, 'NOTIFICATION_TENANT_KEY');
+    const tenant = loadNotificationTenantKey(env);
     const productName = required(env, 'NOTIFICATION_PRODUCT_NAME');
     const primaryColor = required(env, 'NOTIFICATION_PRIMARY_COLOR');
     const preferencesUrl = required(env, 'NOTIFICATION_PREFERENCES_URL');
     const preferences = httpsUrl(preferencesUrl);
     const reconnectUrl = required(env, 'NOTIFICATION_RECONNECT_URL');
     httpsUrl(reconnectUrl);
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(tenant) ||
-        productName.length > 100 || /[\x00-\x1f\x7f]/.test(productName) ||
+    if (productName.length > 100 || /[\x00-\x1f\x7f]/.test(productName) ||
         !/^#[0-9a-fA-F]{6}$/.test(primaryColor) || preferences.search ||
         preferences.pathname !== PREFERENCES_PATH) {
       throw new Error('Invalid notification configuration');
     }
     const keyring = createUnsubscribeKeyring(JSON.parse(required(env, 'NOTIFICATION_UNSUBSCRIBE_KEYRING')));
-    const subjectKind = required(env, 'NOTIFICATION_SUBJECT_KIND');
-    let userId: string | undefined;
-    let addressPepper: string | undefined;
-    if (subjectKind === 'user') {
-      userId = required(env, 'NOTIFICATION_USER_ID');
-      subjectForUser(userId);
-    } else if (subjectKind === 'address') {
-      // Preserve the secret's exact bytes; trimming it would change stored address subjects.
-      addressPepper = env.NOTIFICATION_ADDRESS_PEPPER;
-      if (!addressPepper || Buffer.byteLength(addressPepper, 'utf8') < 32) throw new Error('Address pepper unavailable');
-    } else {
-      throw new Error('Notification recipient identity must be explicit');
-    }
+    // The sender knows its recipient by email. Preserve the pepper's exact bytes:
+    // trimming or replacing it changes the subject of existing opt-out rows.
+    const addressPepper = env.NOTIFICATION_ADDRESS_PEPPER;
+    if (!addressPepper || Buffer.byteLength(addressPepper, 'utf8') < 32) throw new Error('Address pepper unavailable');
     return { tenant, productName, primaryColor, preferencesUrl, reconnectUrl, keyring,
-      subjectKind, userId, addressPepper };
+      addressPepper };
   } catch {
     // Never echo a malformed keyring, secret reference or configuration value.
     throw new Error('Notification configuration unavailable');
   }
 }
 
-/** Account identity must be verified at rollout; no assumption that an authorizer has no account. */
+/** Email-only sender identity; this makes no claim about whether the person has an account. */
 export function notificationSubject(settings: NotificationSettings, address: string): OptOutSubject {
   return {
     tenant: settings.tenant,
-    subject: settings.subjectKind === 'user'
-      ? subjectForUser(settings.userId!)
-      : subjectForAddress(settings.tenant, address, settings.addressPepper!),
+    subject: subjectForAddress(settings.tenant, address, settings.addressPepper),
   };
 }
 
@@ -104,6 +99,7 @@ export function preferenceFailure(status = 503): Response {
   });
 }
 
+/** This signed route's page manages this email category without an account resolver. */
 export function createNotificationPreferencesHandlers(settings: NotificationSettings, store: OptOutStore) {
   const handlers = createUnsubscribeRouteHandler({
     keyring: settings.keyring,

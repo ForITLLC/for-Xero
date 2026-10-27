@@ -12,7 +12,7 @@ const ENV = {
   NOTIFICATION_PREFERENCES_URL: 'https://alerts.example.test/api/notification-preferences',
   NOTIFICATION_RECONNECT_URL: 'https://portal.example.test/connections',
   NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: 'a'.repeat(40) } }),
-  NOTIFICATION_SUBJECT_KIND: 'address', NOTIFICATION_ADDRESS_PEPPER: 'p'.repeat(40),
+  NOTIFICATION_ADDRESS_PEPPER: 'p'.repeat(40),
 };
 const policy = require(path.join(DIST, 'services/notificationPreferences.js'));
 
@@ -34,10 +34,10 @@ function oneClick(url) {
   });
 }
 
-test('configuration requires explicit user/address identity, valid product URLs and a real keyring with no fallback', () => {
+test('configuration requires an explicit address pepper, valid product URLs and a real keyring with no fallback', () => {
   for (const patch of [
-    { NOTIFICATION_SUBJECT_KIND: undefined }, { NOTIFICATION_SUBJECT_KIND: 'automatic' },
-    { NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: undefined },
+    { NOTIFICATION_ADDRESS_PEPPER: undefined }, { NOTIFICATION_ADDRESS_PEPPER: '' },
+    { NOTIFICATION_ADDRESS_PEPPER: undefined, NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42' },
     { NOTIFICATION_ADDRESS_PEPPER: 'short' }, { NOTIFICATION_UNSUBSCRIBE_KEYRING: undefined },
     { NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: 'short' } }) },
     { NOTIFICATION_PREFERENCES_URL: 'http://alerts.example.test/api/notification-preferences' },
@@ -55,8 +55,7 @@ test('configuration requires explicit user/address identity, valid product URLs 
   const first = policy.notificationSubject(address, 'Reader@Example.Test');
   assert.deepEqual(first, policy.notificationSubject(address, ' reader@example.test '));
   assert.match(first.subject, /^e:[a-f0-9]{32}$/);
-  const user = policy.loadNotificationSettings({ ...ENV, NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42' });
-  assert.equal(policy.notificationSubject(user, 'reader@example.test').subject, 'u:person-42');
+  assert.equal(first.subject, common.subjectForAddress(address.tenant, 'reader@example.test', address.addressPepper));
 });
 
 test('address pepper bytes survive configuration loading without silently changing existing HMAC identities', () => {
@@ -66,6 +65,34 @@ test('address pepper bytes survive configuration loading without silently changi
   assert.equal(settings.addressPepper, pepper);
   assert.equal(who.subject, common.subjectForAddress(settings.tenant, 'reader@example.test', pepper));
   assert.notEqual(who.subject, common.subjectForAddress(settings.tenant, 'reader@example.test', pepper.trim()));
+});
+
+test('pepper minimum is measured in UTF-8 bytes and has no account-mode fallback', () => {
+  const settings = policy.loadNotificationSettings({ ...ENV, NOTIFICATION_ADDRESS_PEPPER: 'é'.repeat(16) });
+  assert.equal(Buffer.byteLength(settings.addressPepper, 'utf8'), 32);
+  assert.equal(policy.notificationSubject(settings, 'reader@example.test').subject,
+    common.subjectForAddress(settings.tenant, 'reader@example.test', 'é'.repeat(16)));
+  assert.throws(() => policy.loadNotificationSettings({
+    ...ENV, NOTIFICATION_ADDRESS_PEPPER: 'é'.repeat(15),
+    NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42',
+  }), { message: 'Notification configuration unavailable' });
+});
+
+test('the subject uses the explicit stable TenantKey rather than brand, host or a tenant-id environment fallback', () => {
+  const settings = policy.loadNotificationSettings({
+    ...ENV, NOTIFICATION_TENANT_KEY: 'stable-mail-store', AZURE_TENANT_ID: 'unrelated-directory-id',
+  });
+  const changedPresentation = policy.loadNotificationSettings({
+    ...ENV, NOTIFICATION_TENANT_KEY: 'stable-mail-store', NOTIFICATION_PRODUCT_NAME: 'Another Brand',
+    NOTIFICATION_PREFERENCES_URL: 'https://another.example.test/api/notification-preferences',
+    AZURE_TENANT_ID: 'different-directory-id',
+  });
+  const who = policy.notificationSubject(settings, 'reader@example.test');
+  assert.equal(who.tenant, 'stable-mail-store');
+  assert.deepEqual(who, policy.notificationSubject(changedPresentation, 'reader@example.test'));
+  assert.throws(() => policy.loadNotificationSettings({
+    ...ENV, NOTIFICATION_TENANT_KEY: undefined, AZURE_TENANT_ID: 'unrelated-directory-id',
+  }), { message: 'Notification configuration unavailable' });
 });
 
 test('real Common confirmation is branded only for a verified tenant and sends security headers without writing', async () => {
@@ -151,6 +178,41 @@ function loadAzure(store) {
     'services/notificationStore.js': { createNotificationStore: () => store },
   });
 }
+
+test('Azure function startup rejects a missing or invalid TenantKey before registration or store construction', async () => withEnvironment(async () => {
+  for (const tenant of [undefined, '', ' ', ':starts-with-colon', 'bad key', 'x'.repeat(65)]) {
+    if (tenant === undefined) delete process.env.NOTIFICATION_TENANT_KEY;
+    else process.env.NOTIFICATION_TENANT_KEY = tenant;
+    const registrations = [];
+    let storeConstructions = 0;
+    assert.throws(() => loadFunctions('functions/notificationPreferences.js', {
+      'services/notificationStore.js': {
+        createNotificationStore: () => { storeConstructions++; throw new Error('SQL forbidden'); },
+      },
+    }, {
+      '@azure/functions': { app: { http: (...args) => registrations.push(args) } },
+    }), { message: 'Notification tenant key unavailable' });
+    assert.equal(registrations.length, 0);
+    assert.equal(storeConstructions, 0);
+  }
+}));
+
+test('a colon TenantKey permits registration while signing, presentation, transport and database settings remain lazy', async () => withEnvironment(async () => {
+  for (const name of Object.keys(ENV)) delete process.env[name];
+  process.env.NOTIFICATION_TENANT_KEY = 'product:ca-west_1.2';
+  let storeConstructions = 0;
+  const { registrations } = loadFunctions('functions/notificationPreferences.js', {
+    'services/notificationStore.js': {
+      createNotificationStore: () => { storeConstructions++; throw new Error('SQL forbidden'); },
+    },
+  });
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].name, 'NotificationPreferences');
+  assert.equal(storeConstructions, 0);
+  assert.equal(policy.loadNotificationTenantKey(process.env), 'product:ca-west_1.2');
+  const settings = policy.loadNotificationSettings({ ...ENV, NOTIFICATION_TENANT_KEY: 'product:ca-west_1.2' });
+  assert.equal(policy.notificationSubject(settings, 'reader@example.test').tenant, 'product:ca-west_1.2');
+}));
 
 function azureRequest(url, { method = 'GET', chunks, headers = {}, onCancel } = {}) {
   return {

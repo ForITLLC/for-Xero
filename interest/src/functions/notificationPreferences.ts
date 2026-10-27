@@ -1,9 +1,12 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from '@azure/functions';
 import { createNotificationStore } from '../services/notificationStore';
-import { createNotificationPreferencesHandlers, loadNotificationSettings,
+import { createNotificationPreferencesHandlers, loadNotificationSettings, loadNotificationTenantKey,
   preferenceFailure } from '../services/notificationPreferences';
 
 const MAX_BODY_BYTES = 8 * 1024;
+
+// Only the non-secret tenant key is checked at startup. No SQL, signing key or pepper is read here.
+loadNotificationTenantKey();
 
 /** Bound the Azure stream before adapting it to Common's Web Request handler. */
 async function readBody(request: HttpRequest): Promise<Uint8Array> {

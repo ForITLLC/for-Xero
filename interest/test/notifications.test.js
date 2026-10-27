@@ -14,7 +14,6 @@ const SETTINGS_ENV = {
   NOTIFICATION_PREFERENCES_URL: 'https://alerts.example.test/api/notification-preferences',
   NOTIFICATION_RECONNECT_URL: 'https://portal.example.test/connections',
   NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: 'a'.repeat(40) } }),
-  NOTIFICATION_SUBJECT_KIND: 'address',
   NOTIFICATION_ADDRESS_PEPPER: 'p'.repeat(40),
 };
 
@@ -144,7 +143,7 @@ test('a recipient list or header-like recipient never reaches the preference sto
   }
 });
 
-test('user identity is explicit and uses the stable account subject rather than an address subject', async () => {
+test('legacy account-mode settings cannot replace the configured recipient address subject', async () => {
   const initial = fixture();
   const settings = initial.policy.loadNotificationSettings({
     ...SETTINGS_ENV, NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42',
@@ -156,8 +155,10 @@ test('user identity is explicit and uses the stable account subject rather than 
     keyring: settings.keyring, purpose: initial.policy.NOTIFICATION_PURPOSE,
   });
   assert.equal(verified.ok, true);
-  assert.equal(verified.who.subject, 'u:person-42');
+  assert.equal(verified.who.subject, common.subjectForAddress(settings.tenant, RECIPIENT, settings.addressPepper));
+  assert.match(verified.who.subject, /^e:[a-f0-9]{32}$/);
   assert.ok(!JSON.stringify(verified).includes(RECIPIENT));
+  assert.ok(!JSON.stringify(verified).includes('person-42'));
 });
 
 test('GET confirmation writes nothing; cookie-free one-click POST changes the same row and suppresses the next send', async () => {
