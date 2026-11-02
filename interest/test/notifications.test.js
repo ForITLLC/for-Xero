@@ -128,6 +128,31 @@ test('missing configuration, recipient, keyring, store or sender fails closed be
   }
 });
 
+test('unresolved and trimmed-short signing material never acquires a preference store or ACS client', async () => {
+  const { policy } = fixture();
+  for (const material of [
+    '@Microsoft.KeyVault(SecretUri=https://example.invalid/secret)',
+    '  @mIcRoSoFt.AppConfiguration(Endpoint=https://example.invalid;Key=secret)  ',
+    ' '.repeat(40), `  ${'s'.repeat(31)}  `,
+  ]) {
+    for (const patch of [
+      { NOTIFICATION_ADDRESS_PEPPER: material },
+      { NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: material } }) },
+    ]) {
+      const { send, state } = fixture({
+        getSettings: () => policy.loadNotificationSettings({ ...SETTINGS_ENV, ...patch }),
+      });
+      const { result, logs } = await captureWarnings(() => send('ignored', new Error('ignored')));
+      assert.equal(result, false);
+      assert.equal(state.storeCalls, 0);
+      assert.equal(state.clientCalls, 0);
+      assert.equal(state.messages.length, 0);
+      assert.equal(state.polls, 0);
+      assert.deepEqual(logs, ['Connector failure notification unavailable or suppressed']);
+    }
+  }
+});
+
 test('a recipient list or header-like recipient never reaches the preference store or ACS client', async () => {
   for (const recipient of [
     'one@example.test,two@example.test', 'one@example.test;two@example.test',

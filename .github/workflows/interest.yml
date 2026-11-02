@@ -1,5 +1,9 @@
 name: Deploy Interest
 
+# Ben's stopped-app hold remains: do not merge, dispatch, deploy, start, warm,
+# ping or test-trigger forit-interest-accrual until he releases that hold.
+# Source preparation and local checks do not authorize a runtime change.
+
 on:
   push:
     branches: [main]
@@ -24,11 +28,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://npm.pkg.github.com'
           cache: 'npm'
           cache-dependency-path: interest/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
         working-directory: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
 
       - name: Build

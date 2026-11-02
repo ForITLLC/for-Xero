@@ -38,7 +38,7 @@ test('configuration requires an explicit address pepper, valid product URLs and 
   for (const patch of [
     { NOTIFICATION_ADDRESS_PEPPER: undefined }, { NOTIFICATION_ADDRESS_PEPPER: '' },
     { NOTIFICATION_ADDRESS_PEPPER: undefined, NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42' },
-    { NOTIFICATION_ADDRESS_PEPPER: 'short' }, { NOTIFICATION_UNSUBSCRIBE_KEYRING: undefined },
+    { NOTIFICATION_UNSUBSCRIBE_KEYRING: undefined },
     { NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: 'short' } }) },
     { NOTIFICATION_PREFERENCES_URL: 'http://alerts.example.test/api/notification-preferences' },
     { NOTIFICATION_PREFERENCES_URL: 'https://user:password@alerts.example.test/api/notification-preferences' },
@@ -58,6 +58,33 @@ test('configuration requires an explicit address pepper, valid product URLs and 
   assert.equal(first.subject, common.subjectForAddress(address.tenant, 'reader@example.test', address.addressPepper));
 });
 
+test('Common rejects unresolved references and trimmed-short signing keys without exposing configuration', () => {
+  for (const key of [
+    '@Microsoft.KeyVault(SecretUri=https://example.invalid/secret)',
+    '  @mIcRoSoFt.AppConfiguration(Endpoint=https://example.invalid;Key=signing)  ',
+    ' '.repeat(40), `  ${'k'.repeat(31)}  `,
+  ]) {
+    assert.throws(() => policy.loadNotificationSettings({
+      ...ENV, NOTIFICATION_UNSUBSCRIBE_KEYRING: JSON.stringify({ current: 'k1', keys: { k1: key } }),
+    }), { message: 'Notification configuration unavailable' });
+  }
+});
+
+test('Common validates pepper material when the recipient subject is derived', () => {
+  for (const pepper of [
+    '@Microsoft.KeyVault(SecretUri=https://example.invalid/secret)',
+    '  @mIcRoSoFt.AppConfiguration(Endpoint=https://example.invalid;Key=pepper)  ',
+    ' '.repeat(40), `  ${'p'.repeat(31)}  `, 'short',
+  ]) {
+    const settings = policy.loadNotificationSettings({ ...ENV, NOTIFICATION_ADDRESS_PEPPER: pepper });
+    assert.throws(() => policy.notificationSubject(settings, 'reader@example.test'), (error) => {
+      assert.ok(!error.message.includes(pepper));
+      assert.ok(!error.message.includes('example.invalid'));
+      return true;
+    });
+  }
+});
+
 test('address pepper bytes survive configuration loading without silently changing existing HMAC identities', () => {
   const pepper = `  ${'p'.repeat(40)}  `;
   const settings = policy.loadNotificationSettings({ ...ENV, NOTIFICATION_ADDRESS_PEPPER: pepper });
@@ -72,10 +99,11 @@ test('pepper minimum is measured in UTF-8 bytes and has no account-mode fallback
   assert.equal(Buffer.byteLength(settings.addressPepper, 'utf8'), 32);
   assert.equal(policy.notificationSubject(settings, 'reader@example.test').subject,
     common.subjectForAddress(settings.tenant, 'reader@example.test', 'é'.repeat(16)));
-  assert.throws(() => policy.loadNotificationSettings({
+  const short = policy.loadNotificationSettings({
     ...ENV, NOTIFICATION_ADDRESS_PEPPER: 'é'.repeat(15),
     NOTIFICATION_SUBJECT_KIND: 'user', NOTIFICATION_USER_ID: 'person-42',
-  }), { message: 'Notification configuration unavailable' });
+  });
+  assert.throws(() => policy.notificationSubject(short, 'reader@example.test'));
 });
 
 test('the subject uses the explicit stable TenantKey rather than brand, host or a tenant-id environment fallback', () => {

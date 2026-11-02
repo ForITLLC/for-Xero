@@ -59,7 +59,9 @@ export function loadNotificationSettings(env: NodeJS.ProcessEnv = process.env): 
     // The sender knows its recipient by email. Preserve the pepper's exact bytes:
     // trimming or replacing it changes the subject of existing opt-out rows.
     const addressPepper = env.NOTIFICATION_ADDRESS_PEPPER;
-    if (!addressPepper || Buffer.byteLength(addressPepper, 'utf8') < 32) throw new Error('Address pepper unavailable');
+    if (!addressPepper) throw new Error('Address pepper unavailable');
+    // Common validates the pepper when notificationSubject has the actual address,
+    // before the sender acquires a preference store or transport client.
     return { tenant, productName, primaryColor, preferencesUrl, reconnectUrl, keyring,
       addressPepper };
   } catch {
