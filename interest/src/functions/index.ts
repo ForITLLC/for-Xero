@@ -22,3 +22,4 @@ import './clearLedger';
 import './checkInvoice';
 import './exportInvoices';
 import './approveInvoice';
+import './notificationPreferences';

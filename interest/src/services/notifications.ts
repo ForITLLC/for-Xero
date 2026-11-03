@@ -1,117 +1,91 @@
 import { EmailClient } from '@azure/communication-email';
+import { renderBranded, renderBrandedText, type BrandIdentity, type BrandedDocument } from '@foritllc/email';
+import { unsubscribeHeaders, unsubscribeLink, type OptOutStore } from '@foritllc/mail';
 import { getSecret, SECRETS } from './keyvault';
+import { createNotificationStore } from './notificationStore';
+import { loadNotificationSettings, notificationSubject, scopeNotificationStore,
+  NOTIFICATION_CATEGORY, NOTIFICATION_PURPOSE, type NotificationSettings } from './notificationPreferences';
 
 let emailClient: EmailClient | null = null;
-
-/**
- * Get or create the Azure Communication Services Email client
- */
 function getEmailClient(): EmailClient {
   if (!emailClient) {
-    const connectionString = process.env.AZURE_COMMUNICATION_CONNECTION_STRING;
-    if (!connectionString) {
-      throw new Error('AZURE_COMMUNICATION_CONNECTION_STRING not configured');
-    }
-    emailClient = new EmailClient(connectionString);
+    const connection = process.env.AZURE_COMMUNICATION_CONNECTION_STRING;
+    if (!connection) throw new Error('Notification transport unavailable');
+    emailClient = new EmailClient(connection);
   }
   return emailClient;
 }
 
-/**
- * Send a failure notification to the user who authorized Xero
- */
-export async function sendFailureNotification(
-  functionName: string,
-  error: Error,
-  context?: Record<string, unknown>
-): Promise<boolean> {
-  try {
-    // Get notification email from Key Vault (set during Xero auth)
-    let recipientEmail: string;
-    try {
-      recipientEmail = await getSecret(SECRETS.NOTIFICATION_EMAIL);
-    } catch {
-      console.error('No notification email configured - skipping alert');
-      return false;
-    }
-
-    const senderEmail = process.env.NOTIFICATION_SENDER_EMAIL;
-    if (!senderEmail) {
-      console.error('NOTIFICATION_SENDER_EMAIL not configured - skipping alert');
-      return false;
-    }
-
-    const appUrl = process.env.WEBSITE_HOSTNAME
-      ? `https://${process.env.WEBSITE_HOSTNAME}`
-      : 'https://your-function-app.azurewebsites.net';
-
-    const client = getEmailClient();
-
-    const message = {
-      senderAddress: senderEmail,
-      recipients: {
-        to: [{ address: recipientEmail }],
-      },
-      content: {
-        subject: `Interest Accrual Failed: ${functionName}`,
-        html: `
-          <html>
-          <body style="font-family: -apple-system, system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #dc2626;">Interest Accrual Function Failed</h2>
-
-            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0;">
-              <p style="margin: 0;"><strong>Function:</strong> ${functionName}</p>
-              <p style="margin: 8px 0 0;"><strong>Error:</strong> ${error.message}</p>
-              ${context ? `<p style="margin: 8px 0 0;"><strong>Context:</strong> ${JSON.stringify(context)}</p>` : ''}
-            </div>
-
-            <h3>Likely Cause: Xero Token Expired</h3>
-            <p>Xero access tokens expire every 30 minutes and refresh tokens can expire if not used for 60 days.</p>
-
-            <div style="margin: 24px 0;">
-              <a href="${appUrl}/api/auth/start"
-                 style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                Re-authorize Xero Connection
-              </a>
-            </div>
-
-            <p style="color: #6b7280; font-size: 14px;">
-              This is an automated message from the Interest Accrual system.
-            </p>
-          </body>
-          </html>
-        `,
-        plainText: `
-Interest Accrual Function Failed
-
-Function: ${functionName}
-Error: ${error.message}
-${context ? `Context: ${JSON.stringify(context)}` : ''}
-
-Likely Cause: Xero Token Expired
-
-Xero access tokens expire every 30 minutes and refresh tokens can expire if not used for 60 days.
-
-Re-authorize at: ${appUrl}/api/auth/start
-        `.trim(),
-      },
-    };
-
-    const poller = await client.beginSend(message);
-    await poller.pollUntilDone();
-
-    console.log(`Failure notification sent to ${recipientEmail}`);
-    return true;
-
-  } catch (notifyError) {
-    console.error('Failed to send notification:', notifyError);
-    return false;
-  }
+export interface FailureNotifierOptions {
+  getSettings?: () => NotificationSettings;
+  getStore?: () => OptOutStore;
+  getRecipient?: () => Promise<string>;
+  getSender?: () => string | undefined;
+  getClient?: () => Pick<EmailClient, 'beginSend'>;
 }
 
-/**
- * Wrapper to execute a function with automatic failure notifications
- */
+/** Production dependencies stay lazy so missing configuration/preferences prevent any send. */
+export function createFailureNotifier(options: FailureNotifierOptions = {}) {
+  const getSettings = options.getSettings ?? loadNotificationSettings;
+  const getStore = options.getStore ?? createNotificationStore;
+  const getRecipient = options.getRecipient ?? (() => getSecret(SECRETS.NOTIFICATION_EMAIL));
+  const getSender = options.getSender ?? (() => process.env.NOTIFICATION_SENDER_EMAIL);
+  const getClient = options.getClient ?? getEmailClient;
+  return async (_functionName: string, _error: Error, _context?: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const settings = getSettings();
+      const recipient = (await getRecipient()).trim();
+      // ACS takes an address, not a display-name/list. One signed subject must reach one person.
+      if (!/^[^\s,;<>@]+@[^\s,;<>@]+$/.test(recipient)) throw new Error('Notification recipient unavailable');
+      const who = notificationSubject(settings, recipient);
+      const target = unsubscribeLink({ baseUrl: settings.preferencesUrl, keyring: settings.keyring,
+        purpose: NOTIFICATION_PURPOSE, who, category: NOTIFICATION_CATEGORY });
+      if (!target) throw new Error('Signed notification preferences unavailable');
+      const store = scopeNotificationStore(getStore(), settings.tenant);
+      const off = await store.isOff(who, NOTIFICATION_CATEGORY);
+      if (typeof off !== 'boolean') throw new Error('Notification preference result unavailable');
+      if (off) return false;
+      const sender = getSender()?.trim();
+      if (!sender) throw new Error('Notification sender unavailable');
+      const brand: BrandIdentity = { tenant_id: settings.tenant, company_name: settings.productName,
+        primary_color: settings.primaryColor, secondary_color: settings.primaryColor,
+        accent_color: settings.primaryColor, operator_credit: 'none' };
+      const document: BrandedDocument = {
+        title: 'Your Xero connection needs attention',
+        // Upstream errors/context can contain accounting data or credentials; keep them out of mail.
+        blocks: [
+          { kind: 'paragraph', html: 'A connector operation could not complete. Review your connection in the portal and reconnect if needed.' },
+          { kind: 'action', label: 'Review connection', href: settings.reconnectUrl },
+        ],
+        footerNote: 'You receive this because you are the configured connection contact.',
+        footer: { unsubscribe: { url: target.url, label: 'Stop connector failure alerts' },
+          managePreferences: { url: target.url, label: 'Manage connector failure alerts' } },
+      };
+      const rendered = renderBranded(brand, document);
+      const plain = renderBrandedText(brand, document);
+      if (!plain.unsubscribe || plain.unsubscribe.url !== target.url || !plain.text.includes(target.url)) {
+        throw new Error('Notification preference footer unavailable');
+      }
+      const message = {
+        senderAddress: sender, recipients: { to: [{ address: recipient }] },
+        headers: unsubscribeHeaders(plain.unsubscribe),
+        content: { subject: `${settings.productName}: Xero connection needs attention`,
+          html: rendered.html, plainText: plain.text },
+      };
+      // mail-kind: notification
+      const poller = await getClient().beginSend(message);
+      if ((await poller.pollUntilDone()).status !== 'Succeeded') throw new Error('Notification delivery unavailable');
+      return true;
+    } catch {
+      // No raw driver errors, recipient, signed link or exception/context in logs.
+      console.warn('Connector failure notification unavailable or suppressed');
+      return false;
+    }
+  };
+}
+
+export const sendFailureNotification = createFailureNotifier();
+
 export async function withFailureNotification<T>(
   functionName: string,
   fn: () => Promise<T>,
