@@ -53,7 +53,7 @@ env:
 jobs:
   apply:
     name: Apply ${{ inputs.migration }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, forit-linux]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

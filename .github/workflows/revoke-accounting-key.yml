@@ -32,7 +32,7 @@ concurrency:
 jobs:
   operate:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, forit-linux]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
