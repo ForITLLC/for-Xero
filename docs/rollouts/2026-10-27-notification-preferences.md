@@ -140,13 +140,15 @@ rules; no required check context or protection was changed.
 
 Ben's current no-build-on-fleet rule supersedes the old local-check instruction:
 do not build, compile, install, package or run tests on the fleet server.
-Source validation must use the separate build server through the repository's
-workflow with `runs-on: [self-hosted, Linux, X64, forit-linux]`, submitted with
-`forit-build-submit --repo ForITLLC/for-Xero --ref <branch> --wait` only after a
-source-validation workflow that cannot deploy or invoke Interest is available.
-The existing `interest.yml` runner is updated to that label, but its build/test
-job still proceeds to Azure login and deployment. **Do not dispatch that
-workflow to obtain validation while Ben's stopped-Interest hold remains.**
+Dev's current B6 handoff reports that for-Xero is public and the self-hosted
+runner group does not admit public repositories. Public-repository jobs retain
+hosted `ubuntu-latest`; this draft restores that existing runner setting in
+`interest.yml`. Direct SSH validation on the separate build server remains
+available for source checks without deploying or invoking Interest. This does
+not change repository visibility, runner-group access or workflow permissions.
+The existing `interest.yml` build/test job still proceeds to Azure login and
+deployment. **Do not dispatch that workflow to obtain validation while Ben's
+stopped-Interest hold remains.**
 No workflow has been run for this source update, and no new validation is claimed.
 
 The actual release prerequisite is `.github/workflows/interest.yml`: its setup

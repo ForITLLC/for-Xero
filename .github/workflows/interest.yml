@@ -19,7 +19,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: [self-hosted, Linux, X64, forit-linux]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
