@@ -89,10 +89,14 @@ Common's temporary notifications-package hold could apply.
 
 ## Proposed set for Common's single provisioning wave
 
-Register on child B635C261 and wave
+Track the proposed set on child B635C261 and wave
 [319BC7CE-CDB3-45C2-8D22-D07CA07E8989](https://tasks.forit.io/?task=319BC7CE-CDB3-45C2-8D22-D07CA07E8989).
 These are requested names, not provisioned resources or verified assignments.
-Common owns the ONE wave card; this lane does not file a second card.
+Common's later reply `msg_6cdc0ae2991b` (November 2, 05:20:30Z) confirms that
+no Xero wave card was filed: `7a646a7b` leaves Xero out and `638c0862` was
+declined. There is no filed or approved Xero wave card established by the held
+record. The parent wave is not approval for these proposed Xero writes; this
+source update files no card and makes no provisioning change.
 
 | Item | Requested binding / qualification |
 |---|---|
@@ -121,17 +125,29 @@ this exact table-level triple. The database seat must encode the exact grant.
 A separate OIDC deploy group runs the canonical DDL. Existing legacy SQL-password
 migration is not an authorized path.
 
-## Local checks and held deployment package access
+## Historical checks, build-server route and held deployment package access
 
-Common follow-up `msg_703bb9a6ed84` supersedes the earlier proposed repair of
-Interest CI. ADR 0005 D2 (amended) puts standalone check-only workflows off
-Actions. Local TypeScript and tests are the source gate: the November 2 revision
-passes TypeScript and 47/47 tests (zero skipped); the earlier 44-test result was
-at `7ad37b9`. Run `40440795294` failed package download before build/tests;
-do not rerun it or grant `packages: read` to chase that check. The check-only workflow is removed in this draft. Fresh GitHub metadata on
-November 2 returned no legacy branch protection and no applicable main-branch
-rules; no required check context or protection was changed. Build/test steps
-already run inside `interest.yml` before its deploy step.
+Historical Common follow-up `msg_703bb9a6ed84` superseded the earlier proposed
+repair of Interest CI under the then-current ADR 0005 D2 instruction, so the
+standalone check-only workflow is removed in this draft. The November 2
+revision at `89850c43cf32337cfc13cc09088f895da5cd3cf8` recorded TypeScript and
+47/47 tests passing (zero skipped); the earlier 44-test result was at
+`7ad37b9`. Those are historical results, not checks of subsequent source edits.
+Run `40440795294` failed package download before build/tests;
+do not rerun it or grant `packages: read` to chase that check. Fresh GitHub
+metadata on November 2 returned no legacy branch protection and no applicable main-branch
+rules; no required check context or protection was changed.
+
+Ben's current no-build-on-fleet rule supersedes the old local-check instruction:
+do not build, compile, install, package or run tests on the fleet server.
+Source validation must use the separate build server through the repository's
+workflow with `runs-on: [self-hosted, Linux, X64, forit-linux]`, submitted with
+`forit-build-submit --repo ForITLLC/for-Xero --ref <branch> --wait` only after a
+source-validation workflow that cannot deploy or invoke Interest is available.
+The existing `interest.yml` runner is updated to that label, but its build/test
+job still proceeds to Azure login and deployment. **Do not dispatch that
+workflow to obtain validation while Ben's stopped-Interest hold remains.**
+No workflow has been run for this source update, and no new validation is claimed.
 
 The actual release prerequisite is `.github/workflows/interest.yml`: its setup
 step needs `registry-url: https://npm.pkg.github.com`, and its `npm ci` step
@@ -148,14 +164,19 @@ not replace the separate OIDC migration identity or authorize the stopped app.
 
 1. Resolve Ben's stopped-app deployment hold and choose the approved own-domain
    route, stable TenantKey and tenant presentation.
-2. Have Common qualify the requested set and obtain Ben's decision on its ONE
-   wave card before signing material/pepper, Key Vault references/grants, SQL
-   admission/table access, OIDC identity or permission changes. Deployment-token
-   repository access and public route activation need explicit decided coverage; do not
+2. Have Common qualify the requested set and establish the exact applicable
+   authority before signing material/pepper, Key Vault references/grants, SQL
+   admission/table access, OIDC identity or permission changes. No filed or
+   approved Xero wave card is established; the parent wave is not Xero coverage.
+   Deployment-token repository access and public route activation need explicit
+   decided coverage; do not
    assume the policy ruling or the old connector card covers these effects.
-3. Preserve the local build/test gate. The deploy-only package bindings are
-   prepared; verify their effective access during the authorized release. No
-   check-only Actions repair, grant or permission change is included.
+3. Use the separate build-server route for source validation; never run the
+   local build/test commands on the fleet server. The current workflow combines
+   checks and deployment, so it cannot be dispatched under the stopped-app hold.
+   The deploy-only package bindings are prepared; verify their effective access
+   during the authorized release. No workflow dispatch, grant or permission
+   change is included in this source preparation.
 4. Prove the signed manage page and send check use the same durable row and
    subsequent sends are suppressed; no Website switch is required here.
 5. After authorized migration/deployment, prove deployed GET has no write and a
