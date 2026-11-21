@@ -6,6 +6,9 @@ on:
       - 'scripts/revoke-accounting-key.cjs'
       - 'scripts/run-accounting-key-operation.cjs'
       - 'scripts/test/revoke-accounting-key.test.cjs'
+      - 'scripts/xero-catalog-diagnostic.cjs'
+      - 'scripts/test/xero-catalog-diagnostic.test.cjs'
+      - 'docs/runbooks/xero-catalog-diagnostic.md'
       - '.github/workflows/revoke-accounting-key.yml'
       - '.github/workflows/revoke-accounting-key-ci.yml'
 
@@ -22,3 +25,5 @@ jobs:
           node-version: '20.x'
       - run: node --check scripts/run-accounting-key-operation.cjs
       - run: node --test scripts/test/revoke-accounting-key.test.cjs
+      - run: node --check scripts/xero-catalog-diagnostic.cjs
+      - run: node --test scripts/test/xero-catalog-diagnostic.test.cjs
