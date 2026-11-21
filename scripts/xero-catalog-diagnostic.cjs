@@ -134,7 +134,7 @@ async function readXeroCatalog(deps) {
   }
   // mssql v10 reads the pool's requestTimeout; Request.timeout is unsupported.
   // Do not mutate a shared pool or silently inherit an unbounded configuration.
-  const timeout=deps.pool.config?.requestTimeout;
+  const timeout=deps.pool.config?.options?.requestTimeout ?? deps.pool.config?.requestTimeout;
   if (!Number.isInteger(timeout) || timeout<1 || timeout>15000) {
     throw new Error('Catalog requires an owner pool with bounded requestTimeout');
   }
@@ -163,7 +163,7 @@ async function readXeroCatalog(deps) {
       || data.roles.some(row=>row.depth>=16)) throw new Error('Catalog coverage outside bounds');
     await tx.rollback(); begun=false;
     const receipt = {
-      schema_version:1, source_sha256:SOURCE_SHA256, observer:who, data,
+      schema_version:1, source_sha256:SOURCE_SHA256, request_timeout_ms:timeout, observer:who, data,
       object_presence:data.objects.map(row=>({name:`xero.${row.requested_name}`,
         status:row.object_id!==null ? 'OBSERVED_PRESENT' : 'UNKNOWN'})),
       website_principal:data.principal.length===1 ? 'OBSERVED_PRESENT' : 'UNKNOWN',

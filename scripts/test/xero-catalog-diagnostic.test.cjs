@@ -64,6 +64,13 @@ test('missing, unlimited, oversized or malformed driver timeout refuses before a
   }
   const f=fixture();f.deps.pool.config.requestTimeout=1000;await f.run();
   assert.equal(f.deps.pool.config.requestTimeout,1000,'collector never mutates caller pool');
+  for(const value of [0,-1,15001,Infinity,NaN,'15000']){
+    const g=fixture();g.deps.pool.config.options={requestTimeout:value};
+    await assert.rejects(g.run(),/bounded requestTimeout/);
+    assert.equal(g.state.begins,0);assert.equal(g.state.queries.length,0);
+  }
+  const nested=fixture();nested.deps.pool.config.options={requestTimeout:500};
+  assert.equal((await nested.run()).request_timeout_ms,500,'nested driver option takes precedence');
 });
 
 test('wrong owner, database, server, admin or unknown guard refuses before catalogue reads',async()=>{

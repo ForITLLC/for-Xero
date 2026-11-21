@@ -12,13 +12,18 @@ driver. The collector verifies the existing product migration principal,
 database and server; rejects database-control/owner/security-admin observers;
 then executes fixed catalog SELECTs in one transaction that is rolled back.
 It neither creates a connection nor closes or mutates the caller's pool. It
-requires the supplied pool's driver-supported `config.requestTimeout` to be
-1–15000 ms; missing, unlimited or longer timeouts refuse before any transaction.
+requires the supplied pool's effective driver-supported timeout
+(`config.options.requestTimeout ?? config.requestTimeout`) to be 1–15000 ms;
+missing, unlimited or longer timeouts refuse before any transaction.
 Queries have a 500-row bound; the receipt is capped at 512 KiB. This is the SQL
 request timeout, not an overall deadline for pool acquisition or transaction cleanup.
 Output includes actual observer, original login, SQL timestamp and source digest.
 The future adapter must establish the actual authorized product identity outside
 this module; the SQL principal-name guard alone is not OIDC identity proof.
+It must supply its dedicated owner pool with this timeout configured before its
+connections open, using the pinned mssql/Tedious driver, and prevent concurrent
+configuration changes. Reading a shared pool's current config alone cannot attest
+how an already-open connection was originally configured.
 
 OAuth columns, row values, default/computed definitions and predicate bodies
 are excluded. Returned catalog permissions are visible evidence, not effective
