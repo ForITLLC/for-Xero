@@ -11,9 +11,14 @@ An allowed owner-controlled operation must supply an existing `mssql` pool and
 driver. The collector verifies the existing product migration principal,
 database and server; rejects database-control/owner/security-admin observers;
 then executes fixed catalog SELECTs in one transaction that is rolled back.
-It neither creates a connection nor closes the caller's pool. Each query has a
-15-second timeout and a 500-row bound; the receipt is capped at 512 KiB.
+It neither creates a connection nor closes or mutates the caller's pool. It
+requires the supplied pool's driver-supported `config.requestTimeout` to be
+1–15000 ms; missing, unlimited or longer timeouts refuse before any transaction.
+Queries have a 500-row bound; the receipt is capped at 512 KiB. This is the SQL
+request timeout, not an overall deadline for pool acquisition or transaction cleanup.
 Output includes actual observer, original login, SQL timestamp and source digest.
+The future adapter must establish the actual authorized product identity outside
+this module; the SQL principal-name guard alone is not OIDC identity proof.
 
 OAuth columns, row values, default/computed definitions and predicate bodies
 are excluded. Returned catalog permissions are visible evidence, not effective

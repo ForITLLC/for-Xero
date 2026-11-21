@@ -132,13 +132,19 @@ async function readXeroCatalog(deps) {
   if (!deps || Object.keys(deps).sort().join(',')!=='pool,sql' || !deps.pool || !deps.sql) {
     throw new Error('Catalog dependencies refused');
   }
+  // mssql v10 reads the pool's requestTimeout; Request.timeout is unsupported.
+  // Do not mutate a shared pool or silently inherit an unbounded configuration.
+  const timeout=deps.pool.config?.requestTimeout;
+  if (!Number.isInteger(timeout) || timeout<1 || timeout>15000) {
+    throw new Error('Catalog requires an owner pool with bounded requestTimeout');
+  }
   let tx;
   let begun=false;
   try {
     tx=new deps.sql.Transaction(deps.pool);
     await tx.begin(); begun=true;
     const read=async name => {
-      const request=new deps.sql.Request(tx); request.timeout=15000;
+      const request=new deps.sql.Request(tx);
       const result=await request.query(QUERIES[name]);
       return project(name,result.recordset);
     };
@@ -159,11 +165,11 @@ async function readXeroCatalog(deps) {
     const receipt = {
       schema_version:1, source_sha256:SOURCE_SHA256, observer:who, data,
       object_presence:data.objects.map(row=>({name:`xero.${row.requested_name}`,
-        status:row.object_id!==null ? 'OBSERVED_PRESENT'
-          : who.database_definition===1 || who.schema_definition===1 ? 'ABSENT_IN_VISIBLE_SCHEMA' : 'UNKNOWN'})),
+        status:row.object_id!==null ? 'OBSERVED_PRESENT' : 'UNKNOWN'})),
       website_principal:data.principal.length===1 ? 'OBSERVED_PRESENT' : 'UNKNOWN',
       permissions_basis:'VISIBLE_CATALOG_ONLY', effective_website_rights:'NOT_EVALUATED_AS_WEBSITE',
       limits:['Catalog visibility can hide grants, roles and objects; empty is not proof of no rights.',
+        'Database/schema definition flags do not establish absence where narrower DENY can hide metadata.',
         'Fixed-role, ownership, server-level and impersonation effects are not evaluated.',
         'OAuth columns, values and predicate/default/computed definitions are excluded.'],
       transaction:'ROLLED_BACK', row_data_read:false, access_changed:false,

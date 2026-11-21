@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const {readXeroCatalog,QUERIES,OBJECTS}=require('../xero-catalog-diagnostic.cjs');
 
 function fixture(overrides={}) {
-  const state={begins:0,rollbacks:0,queries:[],timeouts:[]};
+  const state={begins:0,rollbacks:0,queries:[]};
   const rows={
     observer:[{server_name:'forit-saas-sql',database_name:'forit',
       principal_name:'github-actions-forit-xero',original_login:'product-login',
@@ -21,14 +21,15 @@ function fixture(overrides={}) {
   class Request {
     constructor(tx){assert.ok(tx instanceof Transaction);}
     async query(query){
-      state.queries.push(query);state.timeouts.push(this.timeout);
+      state.queries.push(query);
+      assert.equal('timeout' in this,false,'no unsupported Request.timeout field');
       const name=Object.keys(QUERIES).find(key=>QUERIES[key]===query);
       assert.ok(name,'only the fixed query catalogue is called');
       if(state.failQuery===name)throw new Error('private-driver-details');
       return {recordset:rows[name]};
     }
   }
-  const deps={pool:{},sql:{Transaction,Request}};
+  const deps={pool:{config:{requestTimeout:15000}},sql:{Transaction,Request}};
   return {state,rows,deps,run:()=>readXeroCatalog(deps)};
 }
 
@@ -36,7 +37,7 @@ test('one fixed read-only transaction, fixed targets and timeout, never business
   const f=fixture();const receipt=await f.run();
   assert.equal(f.state.begins,1);assert.equal(f.state.rollbacks,1);
   assert.equal(f.state.queries.length,Object.keys(QUERIES).length);
-  assert.ok(f.state.timeouts.every(value=>value===15000));
+  assert.equal(f.deps.pool.config.requestTimeout,15000);
   assert.equal(receipt.transaction,'ROLLED_BACK');assert.equal(receipt.row_data_read,false);
   assert.equal(receipt.access_changed,false);assert.match(receipt.source_sha256,/^[a-f0-9]{64}$/);
   assert.equal(receipt.effective_website_rights,'NOT_EVALUATED_AS_WEBSITE');
@@ -53,6 +54,16 @@ test('no caller SQL, target, credential or principal override is accepted',async
     const f=fixture();await assert.rejects(readXeroCatalog({...f.deps,[extra]:'input'}),/dependencies refused/);
     assert.equal(f.state.begins,0);
   }
+});
+
+test('missing, unlimited, oversized or malformed driver timeout refuses before any transaction',async()=>{
+  for(const value of [undefined,null,0,-1,15001,Infinity,NaN,'15000']){
+    const f=fixture();f.deps.pool.config.requestTimeout=value;
+    await assert.rejects(f.run(),/bounded requestTimeout/);
+    assert.equal(f.state.begins,0);assert.equal(f.state.queries.length,0);
+  }
+  const f=fixture();f.deps.pool.config.requestTimeout=1000;await f.run();
+  assert.equal(f.deps.pool.config.requestTimeout,1000,'collector never mutates caller pool');
 });
 
 test('wrong owner, database, server, admin or unknown guard refuses before catalogue reads',async()=>{
@@ -72,9 +83,9 @@ test('hidden objects and missing principal remain UNKNOWN, not absent or no righ
   assert.equal(result.effective_website_rights,'NOT_EVALUATED_AS_WEBSITE');
 });
 
-test('schema visibility permits only the scoped absence conclusion',async()=>{
+test('schema definition flag cannot prove absence where a narrower metadata DENY may apply',async()=>{
   const f=fixture();f.rows.observer[0].schema_definition=1;f.rows.objects[0].object_id=null;
-  const result=await f.run();assert.equal(result.object_presence[0].status,'ABSENT_IN_VISIBLE_SCHEMA');
+  const result=await f.run();assert.equal(result.object_presence[0].status,'UNKNOWN');
   assert.equal(result.object_presence[1].status,'OBSERVED_PRESENT');
   assert.equal(result.website_principal,'UNKNOWN');
 });
@@ -92,7 +103,7 @@ test('projection drops unexpected secret fields and OAuth column metadata',async
 });
 
 test('query, transaction and rollback failures never expose driver error or partial receipt',async()=>{
-  await assert.rejects(readXeroCatalog({pool:{},sql:{Transaction:class {
+  await assert.rejects(readXeroCatalog({pool:{config:{requestTimeout:15000}},sql:{Transaction:class {
     constructor(){throw new Error('private-driver-details');}
   }}}),error=>error.message==='Xero catalog diagnostic unavailable; no current qualification');
   for(const name of Object.keys(QUERIES)){
